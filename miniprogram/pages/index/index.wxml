@@ -1,0 +1,49 @@
+<!--pages/index/index.wxml-->
+<view class="container">
+  <view class="page-header">
+    <text class="title">大怪路子</text>
+    <text class="subtitle">在线纸牌游戏</text>
+  </view>
+
+  <view class="action-buttons">
+    <button class="btn btn-primary" bindtap="onJoinAsPlayer">
+      加入游戏 (玩家)
+    </button>
+    <button class="btn btn-secondary" bindtap="onSpectate">
+      旁观游戏
+    </button>
+  </view>
+
+  <!-- 用户名输入模态框 -->
+  <view class="modal" wx:if="{{showUsernameModal}}" bindtap="onCloseModal">
+    <view class="modal-content" catchtap>
+      <text class="modal-title">输入玩家名称</text>
+      <input 
+        class="modal-input" 
+        type="text" 
+        placeholder="输入您的名字"
+        value="{{username}}"
+        bindinput="onUsernameChange"
+        maxlength="20"
+      />
+      <view class="modal-buttons">
+        <button class="btn btn-primary" bindtap="confirmJoin">
+          确认
+        </button>
+        <button class="btn btn-secondary" bindtap="onCloseModal">
+          取消
+        </button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 游戏说明 -->
+  <view class="game-info">
+    <view class="info-card">
+      <text class="info-title">游戏规则</text>
+      <text class="info-text">
+        大怪路子是一款传统的中国纸牌游戏，考验你的策略和判断力。
+      </text>
+    </view>
+  </view>
+</view>

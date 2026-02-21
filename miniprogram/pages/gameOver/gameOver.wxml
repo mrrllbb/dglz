@@ -1,0 +1,29 @@
+<!--pages/gameOver/gameOver.wxml-->
+<view class="container">
+  <view class="game-over-content">
+    <view class="trophy">
+      🏆
+    </view>
+    <text class="winner-message">{{winnerMessage}}</text>
+    
+    <view class="final-status">
+      <text class="status-title">最终排名</text>
+      <view class="final-players">
+        <view class="final-player-item" wx:for="{{finalPlayers}}" wx:key="username">
+          <text class="rank-number">{{index + 1}}.</text>
+          <text class="rank-name">{{item.username}}</text>
+          <text class="rank-team">{{item.team}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="action-buttons">
+      <button class="btn btn-primary" bindtap="onPlayAgain">
+        再来一局
+      </button>
+      <button class="btn btn-secondary" bindtap="onExit">
+        返回大厅
+      </button>
+    </view>
+  </view>
+</view>

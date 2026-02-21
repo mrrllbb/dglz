@@ -1,0 +1,7 @@
+{
+  "envId": "YOUR_CLOUDBASE_ENV_ID",
+  "project": {
+    "name": "dglz",
+    "path": "."
+  }
+}

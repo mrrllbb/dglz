@@ -1,0 +1,95 @@
+<!--pages/game/game.wxml-->
+<view class="container">
+  <view class="game-header">
+    <text class="game-title">{{gameTitle}}</text>
+    <text class="spectators" wx:if="{{spectators > 0}}">旁观: {{spectators}}</text>
+  </view>
+
+  <view class="game-main">
+    <!-- 玩家信息区域 -->
+    <view class="players-info">
+      <scroll-view scroll-x class="players-list">
+        <view class="player-card" wx:for="{{players}}" wx:key="username">
+          <text class="player-name">{{item.username}}</text>
+          <text class="player-hand-size">手牌: {{item.handSize}}</text>
+          <text class="player-action" wx:if="{{item.lastPlayed}}">
+            {{item.lastPlayed}}
+          </text>
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 游戏中心（最后一手牌）-->
+    <view class="game-center">
+      <view class="last-play-label">
+        <text>最后一手牌</text>
+      </view>
+      <view class="playing-cards">
+        <view class="card" wx:for="{{lastPlayCards}}" wx:key="*this">
+          {{item}}
+        </view>
+      </view>
+    </view>
+
+    <!-- 游戏状态提示 -->
+    <view class="game-status">
+      <text wx:if="{{isTributing}}">
+        正在进行贡献卡牌...
+      </text>
+      <text wx:else>
+        {{gameStatus}}
+      </text>
+    </view>
+  </view>
+
+  <view class="game-footer">
+    <!-- 我的手牌 -->
+    <view class="my-hand-section">
+      <view class="hand-label">
+        <text>我的手牌</text>
+      </view>
+      <scroll-view scroll-x class="my-cards">
+        <view 
+          class="card my-card{{selectedIndex.includes(index) ? ' selected' : ''}}"
+          wx:for="{{myHand}}" 
+          wx:key="*this"
+          bindtap="onCardTap"
+          data-index="{{index}}"
+        >
+          <text class="card-value">{{item.value}}</text>
+          <text class="card-suit">{{item.suit}}</text>
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 操作按钮 -->
+    <view class="action-buttons">
+      <button 
+        class="btn btn-play" 
+        bindtap="onPlayCards"
+        disabled="{{!isMyTurn || selectedIndex.length === 0}}"
+      >
+        出牌 ({{selectedIndex.length}})
+      </button>
+      <button 
+        class="btn btn-pass" 
+        bindtap="onPass"
+        disabled="{{!isMyTurn}}"
+      >
+        pass
+      </button>
+      <button 
+        class="btn btn-clear" 
+        bindtap="onClearSelection"
+        disabled="{{selectedIndex.length === 0}}"
+      >
+        清空
+      </button>
+    </view>
+
+    <!-- 提示或错误信息 -->
+    <view class="message-box" wx:if="{{message}}">
+      <text class="message">{{message}}</text>
+    </view>
+  </view>
+</view>

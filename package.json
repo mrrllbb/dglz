@@ -4,14 +4,19 @@
   "description": "大怪路子 web app",
   "main": "index.js",
   "dependencies": {
+    "body-parser": "^2.2.2",
     "cookie": "^0.4.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "handlebars": "^4.7.6",
+    "lodash": "^4.17.15",
     "socket.io": "^2.3.0",
-    "lodash": "^4.17.15"
+    "ws": "^8.19.0"
   },
-  "devDependencies": {},
   "scripts": {
     "start": "node server/app.js",
+    "start:miniprogram": "node server/app-miniprogram-example.js",
+    "deploy:cloudbase": "echo \"Please follow DEPLOY_CLOUDBASE.md to deploy via CloudBase console or CLI\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

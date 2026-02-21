@@ -1,0 +1,55 @@
+<!--pages/lobby/lobby.wxml-->
+<view class="container">
+  <view class="lobby-header">
+    <text class="header-title">游戏大厅</text>
+  </view>
+
+  <view class="lobby-content">
+    <!-- 玩家列表 -->
+    <view class="players-section">
+      <view class="section-header">
+        <text class="section-title">玩家 ({{players.length}})</text>
+        <text class="section-info" wx:if="{{players.length % 2 !== 0}}">
+          需要偶数个玩家
+        </text>
+      </view>
+      <scroll-view class="players-list">
+        <view class="player-item" wx:for="{{players}}" wx:key="*this">
+          <text>{{index + 1}}. {{item}}</text>
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 旁观者信息 -->
+    <view class="spectators-section">
+      <text class="section-title">旁观者: {{spectators}}</text>
+    </view>
+
+    <!-- 操作按钮 -->
+    <view class="action-buttons">
+      <button 
+        class="btn btn-primary"
+        bindtap="onStartGame"
+        disabled="{{!isPlayerOne || players.length % 2 !== 0}}"
+      >
+        开始游戏
+      </button>
+      <button class="btn btn-secondary" bindtap="onLeave">
+        返回
+      </button>
+    </view>
+
+    <!-- 提示信息 -->
+    <view class="tips">
+      <text wx:if="{{!isPlayerOne}}" class="tip-text">
+        只有第一个玩家可以开始游戏
+      </text>
+      <text wx:if="{{players.length % 2 !== 0}}" class="tip-text error">
+        玩家数量必须是偶数
+      </text>
+      <text wx:if="{{players.length >= 2 && players.length % 2 === 0}}" class="tip-text success">
+        准备就绪！
+      </text>
+    </view>
+  </view>
+</view>

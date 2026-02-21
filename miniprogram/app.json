@@ -1,0 +1,17 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/lobby/lobby",
+    "pages/game/game",
+    "pages/gameOver/gameOver"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#fff",
+    "navigationBarTitleText": "大怪路子",
+    "navigationBarTextStyle": "black",
+    "navigationStyle": "default"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
