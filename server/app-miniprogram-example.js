@@ -321,7 +321,9 @@ app.post('/start', (req, res) => {
     return res.status(400).json({ error: 'Game already in progress' })
   }
 
-  const uid = parseCookie(req)
+  // 优先从 body 读取 uid，否则从 Cookie 读取
+  let uid = (req.body && req.body.uid) ? parseInt(req.body.uid) : parseCookie(req)
+  
   if (!isPlayerOne(uid)) {
     return res.status(403).json({ error: 'Only player 1 can start the game' })
   }
