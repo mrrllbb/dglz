@@ -19,36 +19,47 @@ Page({
   },
 
   onLoad() {
-    this.startListeningToSocket()
-    this.requestGameUpdate()
-    
-    // 监听返回按钮
-    wx.onBackPress(() => {
-      return false
-    })
-  },
-
-  startListeningToSocket() {
-    const pages = getCurrentPages()
-    const currentPage = pages[pages.length - 1]
-    
-    currentPage.onSocketMessage = (data) => {
-      this.handleGameMessage(data)
-    }
-  },
-
-  requestGameUpdate() {
     const uid = wx.getStorageSync('uid')
     if (!uid) {
       wx.navigateBack()
       return
     }
 
-    // 向服务器请求游戏更新
-    app.sendMessage({
-      type: 'get update',
-      uid: uid
+    // 立即请求游戏状态
+    this.refreshGameState()
+    
+    // 每1秒轮询一次游戏状态
+    this.gameStateTimer = setInterval(() => {
+      this.refreshGameState()
+    }, 1000)
+  },
+
+  refreshGameState() {
+    const uid = wx.getStorageSync('uid')
+    if (!uid) {
+      return
+    }
+
+    // 通过 HTTP 接口获取游戏状态
+    app.callContainer({
+      path: '/game-state',
+      method: 'GET',
+      data: { uid: uid }
+    }).then((res) => {
+      if (res && res.statusCode === 200 && res.data) {
+        this.updateGameState(res.data)
+      }
+    }).catch((err) => {
+      console.error('获取游戏状态失败:', err)
     })
+  },
+
+  startListeningToSocket() {
+    // 已弃用：使用 HTTP 轮询代替
+  },
+
+  requestGameUpdate() {
+    // 已弃用：使用 refreshGameState 代替
   },
 
   handleGameMessage(data) {
@@ -88,36 +99,22 @@ Page({
       })
     }
     
-    if (data.gameHand) {
-      const hand = data.gameHand
+    if (data.myHand) {
       this.setData({
-        myHand: hand,
+        myHand: data.myHand,
         selectedIndex: []
       })
     }
 
-    if (data.lastPlay) {
+    if (data.lastPlayCards) {
       this.setData({
-        lastPlayCards: this.formatCards(data.lastPlay)
-      })
-    }
-
-    if (data.title) {
-      this.setData({
-        gameTitle: data.title,
-        isMyTurn: data.title.includes('Your turn')
+        lastPlayCards: this.formatCards(data.lastPlayCards)
       })
     }
 
     if (data.spectators !== undefined) {
       this.setData({
         spectators: data.spectators
-      })
-    }
-
-    if (data.tributing !== undefined) {
-      this.setData({
-        isTributing: data.tributing
       })
     }
   },
@@ -158,11 +155,19 @@ Page({
     const selectedCards = this.data.selectedIndex.map(idx => this.data.myHand[idx])
     const uid = wx.getStorageSync('uid')
 
-    // 发送检查请求到服务器
-    app.sendMessage({
-      type: 'check',
-      uid: uid,
-      playedHand: selectedCards
+    // 通过 HTTP 接口检查出牌合法性
+    app.callContainer({
+      path: '/check',
+      method: 'POST',
+      data: { uid: uid, playedHand: selectedCards }
+    }).then((res) => {
+      if (res && res.statusCode === 200) {
+        wx.showToast({ title: '出牌检查通过', icon: 'success' })
+      } else {
+        wx.showToast({ title: res?.data?.message || '检查失败', icon: 'error' })
+      }
+    }).catch((err) => {
+      console.error('检查出牌失败:', err)
     })
   },
 
@@ -200,16 +205,23 @@ Page({
     const selectedCards = this.data.selectedIndex.map(idx => this.data.myHand[idx])
     const uid = wx.getStorageSync('uid')
 
-    // 发送出牌请求
-    app.sendMessage({
-      type: 'play',
-      uid: uid,
-      playedHand: selectedCards
-    })
-
-    this.setData({
-      selectedIndex: [],
-      message: ''
+    // 通过 HTTP 接口发送出牌请求
+    app.callContainer({
+      path: '/play',
+      method: 'POST',
+      data: { uid: uid, playedHand: selectedCards }
+    }).then((res) => {
+      if (res && res.statusCode === 200) {
+        this.setData({
+          selectedIndex: [],
+          message: ''
+        })
+        wx.showToast({ title: '出牌成功', icon: 'success' })
+      } else {
+        wx.showToast({ title: res?.data?.message || '出牌失败', icon: 'error' })
+      }
+    }).catch((err) => {
+      console.error('出牌失败:', err)
     })
   },
 
@@ -224,16 +236,23 @@ Page({
 
     const uid = wx.getStorageSync('uid')
 
-    // 发送PASS请求
-    app.sendMessage({
-      type: 'play',
-      uid: uid,
-      playedHand: null
-    })
-
-    this.setData({
-      selectedIndex: [],
-      message: ''
+    // 通过 HTTP 接口发送PASS请求
+    app.callContainer({
+      path: '/play',
+      method: 'POST',
+      data: { uid: uid, playedHand: null }
+    }).then((res) => {
+      if (res && res.statusCode === 200) {
+        this.setData({
+          selectedIndex: [],
+          message: ''
+        })
+        wx.showToast({ title: 'PASS成功', icon: 'success' })
+      } else {
+        wx.showToast({ title: res?.data?.message || 'PASS失败', icon: 'error' })
+      }
+    }).catch((err) => {
+      console.error('PASS失败:', err)
     })
   },
 
@@ -267,6 +286,16 @@ Page({
       content: data.tributes ? data.tributes.join('\n') : '贡献完成',
       confirmText: '确定',
       showCancel: false
+    })
+  },
+
+  onUnload() {
+    // 清除游戏状态轮询定时器
+    if (this.gameStateTimer) {
+      clearInterval(this.gameStateTimer)
+    }
+  }
+})
     })
   },
 

@@ -24,19 +24,32 @@ Page({
       return
     }
 
-    // 调用 /players 接口获取玩家列表
+    // 调用 /players 接口获取玩家列表和游戏状态
     app.callContainer({
       path: '/players',
       method: 'GET'
     }).then((res) => {
       if (res && res.statusCode === 200 && res.data) {
         const playerList = res.data.players || []
+        const gameInProgress = res.data.gameInProgress || false
         const isPlayerOne = uid && playerList.length > 0 && app.globalData.isPlayer
         
         this.setData({
           players: playerList,
           isPlayerOne: isPlayerOne
         })
+
+        // 如果游戏已开始，玩家应该进入游戏界面
+        if (gameInProgress && app.globalData.isPlayer) {
+          // 清除定时器
+          if (this.playerListTimer) {
+            clearInterval(this.playerListTimer)
+          }
+          // 导航到游戏页面
+          wx.navigateTo({
+            url: '/pages/game/game'
+          })
+        }
       }
     }).catch((err) => {
       console.error('获取玩家列表失败:', err)

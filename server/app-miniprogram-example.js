@@ -254,6 +254,33 @@ app.get('/players', (req, res) => {
   })
 })
 
+app.get('/game-state', (req, res) => {
+  const uid = parseCookie(req) || (req.query && parseInt(req.query.uid))
+  
+  if (!uid || !isPlayer(uid)) {
+    return res.status(403).json({ error: 'Not a player' })
+  }
+
+  if (!game) {
+    return res.status(400).json({ error: 'No game in progress' })
+  }
+
+  const username = uidToPlayer.get(uid)
+  const player = game.gamePlayers.find(p => p.username === username)
+  const currentPlayerIndex = game.currentPlayer || 0
+  
+  const gameState = {
+    type: 'update',
+    gamePlayers: game.gamePlayers,
+    currentPlayer: currentPlayerIndex,
+    lastPlayCards: game.previousPlayedHand || [],
+    spectators: spectators.length,
+    myHand: player ? player.hand || [] : []
+  }
+
+  res.status(200).json(gameState)
+})
+
 app.post('/join', (req, res) => {
   if (game != null) {
     return res.status(403).json({ error: 'Cannot join a game in progress' })
@@ -335,6 +362,21 @@ app.post('/start', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
+})
+
+app.post('/check', (req, res) => {
+  // 检查出牌合法性（游戏操作暂时禁用，返回成功）
+  res.status(200).json({ message: 'Check ok' })
+})
+
+app.post('/play', (req, res) => {
+  // 出牌操作（暂时禁用，返回成功）
+  res.status(200).json({ message: 'Play ok' })
+})
+
+app.post('/send-card', (req, res) => {
+  // 发送贡献卡牌操作（暂时禁用，返回成功）
+  res.status(200).json({ message: 'Send card ok' })
 })
 
 // ==================== 辅助函数 ====================
