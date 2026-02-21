@@ -255,9 +255,12 @@ app.get('/players', (req, res) => {
 })
 
 app.get('/game-state', (req, res) => {
-  const uid = parseCookie(req) || (req.query && parseInt(req.query.uid))
-  
-  if (!uid || !isPlayer(uid)) {
+  let uid = -1
+  if (req.query && req.query.uid) uid = parseInt(req.query.uid)
+  else if (req.body && req.body.uid) uid = parseInt(req.body.uid)
+  else uid = parseCookie(req)
+
+  if (!isPlayer(uid)) {
     return res.status(403).json({ error: 'Not a player' })
   }
 
@@ -379,6 +382,22 @@ app.post('/send-card', (req, res) => {
   res.status(200).json({ message: 'Send card ok' })
 })
 
+app.post('/leave', (req, res) => {
+  const uid = (req.body && req.body.uid) ? parseInt(req.body.uid) : parseCookie(req)
+  if (!uid) return res.status(400).json({ ok: false, error: 'missing uid' })
+  if (isPlayer(uid)) {
+    const username = uidToPlayer.get(uid)
+    players = players.filter(p => p !== username)
+    uidToPlayer.delete(uid)
+    broadcastToAll({ type: 'player left', username })
+  }
+  if (isSpectator(uid)) {
+    spectators = spectators.filter(s => s !== uid)
+    broadcastToAll({ type: 'num spectators', numSpectators: spectators.length })
+  }
+  res.status(200).json({ ok: true })
+})
+
 // ==================== 辅助函数 ====================
 
 function parseCookie(req) {
@@ -410,10 +429,49 @@ function createGame() {
   if (players.length % 2 != 0) {
     throw new Error('Must have an even number of players')
   }
-  // 这里应该实现完整的游戏创建逻辑
-  // 为了简洁，这里省略了具体实现
+  // 构建牌组 (标准 52 + 2 joker)
+  const deck = []
+  for (let v = 1; v <= 13; v++) {
+    for (let s = 1; s <= 4; s++) {
+      deck.push({ value: v, suit: s })
+    }
+  }
+  // 小王/大王
+  deck.push({ value: 14, suit: 0 })
+  deck.push({ value: 15, suit: 0 })
+
+  // 支持多副牌
+  let fullDeck = []
+  for (let i = 0; i < Math.max(1, numDecks); i++) {
+    fullDeck = fullDeck.concat(deck.map(d => Object.assign({}, d)))
+  }
+
+  // 洗牌 (Fisher-Yates)
+  for (let i = fullDeck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = fullDeck[i]
+    fullDeck[i] = fullDeck[j]
+    fullDeck[j] = tmp
+  }
+
+  // 分牌
+  const numPlayers = players.length
+  const hands = Array.from({ length: numPlayers }, () => [])
+  let idx = 0
+  while (fullDeck.length > 0) {
+    hands[idx % numPlayers].push(fullDeck.shift())
+    idx++
+  }
+
+  const gamePlayers = players.map((username, i) => ({
+    username,
+    hand: hands[i],
+    handSize: hands[i].length,
+    lastPlayed: null
+  }))
+
   return {
-    gamePlayers: players.map(p => ({ username: p })),
+    gamePlayers: gamePlayers,
     currentPlayer: 0,
     previousPlayedHand: [],
     lastActions: new Array(players.length).fill(''),
