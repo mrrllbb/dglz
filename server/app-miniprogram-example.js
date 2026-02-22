@@ -72,62 +72,72 @@ const port = process.env.PORT || 8000
 
 // ==================== WebSocket 处理 ====================
 
+// WebSocket多房间支持
 wss.on('connection', (ws) => {
-  let uid = null
-  ws.isAlive = true
+  let uid = null;
+  let roomId = null;
+  ws.isAlive = true;
 
   ws.on('pong', () => {
-    ws.isAlive = true
-  })
+    ws.isAlive = true;
+  });
 
   ws.on('message', (message) => {
     try {
-      const data = JSON.parse(message)
-      uid = data.uid
+      const data = JSON.parse(message);
+      uid = data.uid;
+      roomId = data.roomId;
 
-      if (!uid) {
-        sendError(ws, '无效的用户ID')
-        return
+      if (!uid || !roomId) {
+        sendError(ws, '无效的用户ID或房间号');
+        return;
       }
 
-      // 保存连接
-      clients.set(uid, ws)
+      const room = getRoom(roomId);
+      if (!room) {
+        sendError(ws, '房间不存在');
+        return;
+      }
+
+      // 保存连接到房间
+      room.clients.set(uid, ws);
 
       // 处理不同类型的消息
       switch (data.type) {
         case 'check':
-          handleCheck(uid, data)
-          break
+          handleCheckRoom(room, ws, data);
+          break;
         case 'play':
-          handlePlay(uid, data)
-          break
-        case 'send card':
-          handleSendCard(uid, data)
-          break
-        case 'get update':
-          handleGetUpdate(uid, data)
-          break
-        case 'message':
-          handleGameMessage(uid, data.message)
-          break
+          handlePlayRoom(room, ws, data);
+          break;
+        case 'sendCard':
+          handleSendCardRoom(room, ws, data);
+          break;
+        case 'getUpdate':
+          handleGetUpdateRoom(room, ws, data);
+          break;
+        case 'gameMessage':
+          handleGameMessageRoom(room, ws, data);
+          break;
         default:
-          console.warn(`未知的消息类型: ${data.type}`)
+          sendError(ws, `未知的消息类型: ${data.type}`);
       }
     } catch (err) {
-      console.error('处理WebSocket消息错误:', err)
-      sendError(ws, '消息处理错误')
+      console.error('处理WebSocket消息错误:', err);
+      sendError(ws, '消息处理错误');
     }
-  })
+  });
 
   ws.on('close', () => {
-    if (uid) {
-      console.log(`用户 ${uid} 断开连接`)
-      clients.delete(uid)
+    if (uid && roomId) {
+      const room = getRoom(roomId);
+      if (room) room.clients.delete(uid);
+      console.log(`用户 ${uid} 断开连接 房间 ${roomId}`);
     }
-  })
+  });
 
   ws.on('error', (err) => {
-    console.error('WebSocket错误:', err)
+    console.error('WebSocket错误:', err);
   })
 })
 
@@ -145,135 +155,116 @@ setInterval(() => {
   })
 }, 30000)
 
-// ==================== 游戏消息处理 ====================
+// ==================== 游戏消息处理（多房间） ====================
 
-function handleCheck(uid, data) {
-  if (!isPlayer(uid)) {
-    sendToUser(uid, { type: 'check error', err: '无效的用户ID' })
+function handleCheckRoom(room, uid, data) {
+  if (!room.uidToPlayer.has(uid)) {
+    sendToUserRoom(room, uid, { type: 'check error', err: '无效的用户ID' })
     return
   }
-
-  const username = uidToPlayer.get(uid)
+  const username = room.uidToPlayer.get(uid)
   const playedHand = data.playedHand
-
-  if (tributes) {
+  if (room.tributes) {
     try {
-      game.validateTribute(username, playedHand)
-      sendToUser(uid, { type: 'check ok' })
+      room.game.validateTribute(username, playedHand)
+      sendToUserRoom(room, uid, { type: 'check ok' })
     } catch (err) {
-      sendToUser(uid, { 
-        type: 'check error', 
-        err: err.message 
-      })
+      sendToUserRoom(room, uid, { type: 'check error', err: err.message })
     }
   } else {
     try {
-      const currentPlay = game.validate(username, playedHand)
-      sendToUser(uid, {
+      const currentPlay = room.game.validate(username, playedHand)
+      sendToUserRoom(room, uid, {
         type: 'check ok',
-        isPassOk: game.isPassOk(),
+        isPassOk: room.game.isPassOk(),
         onlyPassOk: currentPlay.play === 0 // PASS
       })
     } catch (err) {
-      sendToUser(uid, {
+      sendToUserRoom(room, uid, {
         type: 'check error',
-        isPassOk: game.isPassOk(),
+        isPassOk: room.game.isPassOk(),
         err: err.message
       })
     }
   }
 }
 
-function handlePlay(uid, data) {
-  if (!isPlayer(uid)) {
-    broadcastError('非法的用户尝试出牌')
+function handlePlayRoom(room, uid, data) {
+  if (!room.uidToPlayer.has(uid)) {
+    broadcastErrorRoom(room, '非法的用户尝试出牌')
     return
   }
-
   try {
-    const username = uidToPlayer.get(uid)
+    const username = room.uidToPlayer.get(uid)
     const playedHand = data.playedHand
-    const result = game.advance(username, playedHand)
-
+    const result = room.game.advance(username, playedHand)
     if (result.state !== gameState.IN_PROGRESS) {
-      broadcastToAll({ type: 'game over' })
+      broadcastToAllRoom(room, { type: 'game over' })
       return
     }
-
-    // 更新所有玩家的游戏状态
-    broadcastUpdate()
+    broadcastUpdateRoom(room)
   } catch (err) {
     console.error('出牌错误:', err)
-    broadcastError(err.message)
+    broadcastErrorRoom(room, err.message)
   }
 }
 
-function handleSendCard(uid, data) {
-  if (!isPlayer(uid)) {
-    broadcastError('非法的用户尝试发送卡牌')
+function handleSendCardRoom(room, uid, data) {
+  if (!room.uidToPlayer.has(uid)) {
+    broadcastErrorRoom(room, '非法的用户尝试发送卡牌')
     return
   }
-
   try {
-    const username = uidToPlayer.get(uid)
+    const username = room.uidToPlayer.get(uid)
     const selectedCards = data.selectedCards
-    const result = game.sendTribute(username, selectedCards)
-
-    // 更新出牌此尝试该玩家的手牌
+    const result = room.game.sendTribute(username, selectedCards)
     if (result && result.receiverUid) {
-      sendToUser(result.receiverUid, {
-        type: 'update',
-        gameHand: result.newHand
-      })
+      sendToUserRoom(room, result.receiverUid, { type: 'update', gameHand: result.newHand })
     }
-
-    // 广播更新给所有玩家
-    broadcastUpdate()
-
-    // 检查所有贡献是否已完成
+    broadcastUpdateRoom(room)
     let allTributesComplete = true
-    for (let t of tributes) {
+    for (let t of room.tributes) {
       if (!t.hasOwnProperty('giverSent') || !t.hasOwnProperty('receiverSent')) {
         allTributesComplete = false
         break
       }
     }
-
     if (allTributesComplete) {
-      tributes = null
-      // 发送贡献摘要
+      room.tributes = null
       const tributeStrings = []
-      for (let t of tributes) {
+      for (let t of room.tributes) {
         tributeStrings.push(`${t.giver} sent ${t.receiver} a card`)
         tributeStrings.push(`${t.receiver} returned ${t.giver} a card`)
       }
-      broadcastToAll({
-        type: 'tribute summary',
-        tributes: tributeStrings
-      })
+      broadcastToAllRoom(room, { type: 'tribute summary', tributes: tributeStrings })
     }
   } catch (err) {
     console.error('发送贡献卡牌错误:', err)
-    broadcastError(err.message)
+    broadcastErrorRoom(room, err.message)
   }
 }
 
-function handleGetUpdate(uid, data) {
-  sendGameUpdate(uid)
+function handleGetUpdateRoom(room, uid, data) {
+  sendGameUpdateRoom(room, uid)
 }
 
-function handleGameMessage(uid, message) {
+function handleGameMessageRoom(room, uid, message) {
   if (message === 'play again') {
     try {
-      tributes = game.getTributes()
-      game = createGame()
-      broadcastToAll({ type: 'reload' })
+      room.tributes = room.game.getTributes()
+      room.game = createGameRoom(room)
+      broadcastToAllRoom(room, { type: 'reload' })
     } catch (err) {
-      broadcastError(err.message)
+      broadcastErrorRoom(room, err.message)
     }
   } else if (message === 'exit') {
-    resetAllState()
-    broadcastToAll({ type: 'reload' })
+    // 清空房间状态
+    room.game = null
+    room.tributes = null
+    room.players = []
+    room.uidToPlayer = new Map()
+    room.spectators = []
+    broadcastToAllRoom(room, { type: 'reload' })
   }
 }
 
@@ -541,53 +532,50 @@ function resetAllState() {
   numDecks = 0
 }
 
-// ==================== 消息发送函数 ====================
+// ==================== 消息发送函数（多房间） ====================
 
-function sendToUser(uid, message) {
-  const ws = clients.get(uid)
+function sendToUserRoom(room, uid, message) {
+  const ws = room.clients.get(uid)
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(message))
   }
 }
 
-function broadcastToAll(message) {
+function broadcastToAllRoom(room, message) {
   const data = JSON.stringify(message)
-  clients.forEach((ws) => {
+  room.clients.forEach((ws) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(data)
     }
   })
 }
 
-function broadcastUpdate() {
-  clients.forEach((ws, uid) => {
+function broadcastUpdateRoom(room) {
+  room.clients.forEach((ws, uid) => {
     if (ws.readyState === WebSocket.OPEN) {
-      sendGameUpdate(uid)
+      sendGameUpdateRoom(room, uid)
     }
   })
 }
 
-function sendGameUpdate(uid) {
-  if (!game) return
-
-  const username = uidToPlayer.get(uid)
+function sendGameUpdateRoom(room, uid) {
+  if (!room.game) return
+  const username = room.uidToPlayer.get(uid)
   const update = {
     type: 'update',
     requestUpdate: false,
-    gamePlayers: game.gamePlayers,
-    currentPlayer: game.currentPlayer,
-    lastPlayCards: game.previousPlayedHand,
-    spectators: spectators.length
+    gamePlayers: room.game.gamePlayers,
+    currentPlayer: room.game.currentPlayer,
+    lastPlayCards: room.game.previousPlayedHand,
+    spectators: room.spectators.length
   }
-
   if (username) {
-    const player = game.gamePlayers.find(p => p.username === username)
+    const player = room.game.gamePlayers.find(p => p.username === username)
     if (player) {
       update.myHand = player.hand || []
     }
   }
-
-  sendToUser(uid, update)
+  sendToUserRoom(room, uid, update)
 }
 
 function sendError(ws, message) {
@@ -596,8 +584,8 @@ function sendError(ws, message) {
   }
 }
 
-function broadcastError(message) {
-  broadcastToAll({ type: 'error', message })
+function broadcastErrorRoom(room, message) {
+  broadcastToAllRoom(room, { type: 'error', message })
 }
 
 // 启动服务器
