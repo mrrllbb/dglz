@@ -143,15 +143,17 @@ wss.on('connection', (ws) => {
 
 // 心跳检测
 setInterval(() => {
-  clients.forEach((ws, uid) => {
-    if (ws.isAlive === false) {
-      console.log(`用户 ${uid} 心跳超时，关闭连接`)
-      clients.delete(uid)
-      ws.terminate()
-    } else {
-      ws.isAlive = false
-      ws.ping()
-    }
+  rooms.forEach((room) => {
+    room.clients.forEach((ws, uid) => {
+      if (ws.isAlive === false) {
+        console.log(`用户 ${uid} 心跳超时，关闭连接 房间 ${room.roomId}`)
+        room.clients.delete(uid)
+        ws.terminate()
+      } else {
+        ws.isAlive = false
+        ws.ping()
+      }
+    })
   })
 }, 30000)
 
