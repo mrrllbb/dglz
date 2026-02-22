@@ -28,13 +28,45 @@ const gameState = {
   TEAM_TWO_WON: 2,
 }
 
-let numDecks = 0
-let game = null
-let tributes = null
-let players = [] // 玩家名称数组
-let uidToPlayer = new Map() // uid -> 用户名
-let spectators = [] // 旁观者UID数组
-let clients = new Map() // uid -> WebSocket连接
+// 多房间机制
+const rooms = new Map() // roomId -> roomObj
+const ROOM_TIMEOUT = 30 * 60 * 1000 // 30分钟无操作自动关闭
+
+function createRoom(roomId) {
+  const room = {
+    roomId,
+    numDecks: 0,
+    game: null,
+    tributes: null,
+    players: [], // 玩家名称数组
+    uidToPlayer: new Map(), // uid -> 用户名
+    spectators: [], // 旁观者UID数组
+    clients: new Map(), // uid -> WebSocket连接
+    lastActive: Date.now(),
+    timeoutTimer: null
+  }
+  // 启动超时自动销毁
+  room.timeoutTimer = setTimeout(() => {
+    rooms.delete(roomId)
+  }, ROOM_TIMEOUT)
+  rooms.set(roomId, room)
+  return room
+}
+
+function getRoom(roomId) {
+  return rooms.get(roomId)
+}
+
+function touchRoom(roomId) {
+  const room = rooms.get(roomId)
+  if (room) {
+    room.lastActive = Date.now()
+    if (room.timeoutTimer) clearTimeout(room.timeoutTimer)
+    room.timeoutTimer = setTimeout(() => {
+      rooms.delete(roomId)
+    }, ROOM_TIMEOUT)
+  }
+}
 
 const port = process.env.PORT || 8000
 
@@ -248,80 +280,98 @@ function handleGameMessage(uid, message) {
 // ==================== HTTP 端点 ====================
 
 app.get('/players', (req, res) => {
+  const roomId = req.query && req.query.roomId
+  if (!roomId) return res.status(400).json({ error: '缺少房间号' })
+  let room = getRoom(roomId)
+  if (!room) return res.status(404).json({ error: '房间不存在' })
+  touchRoom(roomId)
   res.status(200).json({
-    players: players,
-    gameInProgress: game !== null
+    players: room.players,
+    gameInProgress: room.game !== null
   })
 })
 
 app.get('/game-state', (req, res) => {
+  const roomId = req.query && req.query.roomId
+  if (!roomId) return res.status(400).json({ error: '缺少房间号' })
+  let room = getRoom(roomId)
+  if (!room) return res.status(404).json({ error: '房间不存在' })
+  touchRoom(roomId)
   let uid = -1
   if (req.query && req.query.uid) uid = parseInt(req.query.uid)
   else if (req.body && req.body.uid) uid = parseInt(req.body.uid)
   else uid = parseCookie(req)
 
-  if (!isPlayer(uid)) {
+  if (!room.uidToPlayer.has(uid)) {
     return res.status(403).json({ error: 'Not a player' })
   }
 
-  if (!game) {
+  if (!room.game) {
     return res.status(400).json({ error: 'No game in progress' })
   }
 
-  const username = uidToPlayer.get(uid)
-  const player = game.gamePlayers.find(p => p.username === username)
-  const currentPlayerIndex = game.currentPlayer || 0
+  const username = room.uidToPlayer.get(uid)
+  const player = room.game.gamePlayers.find(p => p.username === username)
+  const currentPlayerIndex = room.game.currentPlayer || 0
   
   const gameState = {
     type: 'update',
-    gamePlayers: game.gamePlayers,
+    gamePlayers: room.game.gamePlayers,
     currentPlayer: currentPlayerIndex,
-    lastPlayCards: game.previousPlayedHand || [],
-    spectators: spectators.length,
+    lastPlayCards: room.game.previousPlayedHand || [],
+    spectators: room.spectators.length,
     myHand: player ? player.hand || [] : []
   }
 
   res.status(200).json(gameState)
 })
 
+// 创建房间
+app.post('/create-room', (req, res) => {
+  const roomId = Math.floor(Math.random() * 1000000).toString()
+  createRoom(roomId)
+  res.status(200).json({ roomId })
+})
+
+// 加入房间
 app.post('/join', (req, res) => {
-  if (game != null) {
-    return res.status(403).json({ error: 'Cannot join a game in progress' })
+  const roomId = req.body && req.body.roomId
+  if (!roomId) return res.status(400).json({ error: '缺少房间号' })
+  let room = getRoom(roomId)
+  if (!room) return res.status(404).json({ error: '房间不存在' })
+  if (room.game != null) {
+    return res.status(403).json({ error: '房间游戏已开始，无法加入' })
   }
+  touchRoom(roomId)
 
   const uid = parseCookie(req)
-  if (isPlayer(uid)) {
-    return res.status(400).json({ error: 'Player already in game' })
+  if (room.uidToPlayer.has(uid)) {
+    return res.status(400).json({ error: '玩家已在房间' })
   }
 
   let newUid = uid >= 0 ? uid : createUid()
-  
-  if (isSpectator(newUid)) {
-    spectators = spectators.filter(s => s !== newUid)
-    broadcastToAll({ type: 'num spectators', numSpectators: spectators.length })
+  if (room.spectators.includes(newUid)) {
+    room.spectators = room.spectators.filter(s => s !== newUid)
+    // 不广播旁观者变化
   }
 
   let username = 'user'
   if (req.body && req.body.username) {
     username = _.escape(req.body.username)
   }
-  
   // 处理重名
-  if (players.includes(username)) {
+  if (room.players.includes(username)) {
     let suffix = 1
-    while (players.includes(username + suffix)) {
+    while (room.players.includes(username + suffix)) {
       suffix++
     }
     username += suffix
   }
+  room.players.push(username)
+  room.uidToPlayer.set(newUid, username)
 
-  players.push(username)
-  uidToPlayer.set(newUid, username)
-
-  // 返回 JSON（不用 Set-Cookie，小程序会在本地存储 uid）
   res.status(200).json({ uid: newUid, username: username })
-
-  broadcastToAll({ type: 'new player', username: username })
+  // 不广播新玩家，前端可轮询
 })
 
 app.post('/spectate', (req, res) => {
@@ -347,21 +397,24 @@ app.post('/spectate', (req, res) => {
 })
 
 app.post('/start', (req, res) => {
-  if (game != null) {
-    return res.status(400).json({ error: 'Game already in progress' })
+  const roomId = req.body && req.body.roomId
+  if (!roomId) return res.status(400).json({ error: '缺少房间号' })
+  let room = getRoom(roomId)
+  if (!room) return res.status(404).json({ error: '房间不存在' })
+  if (room.game != null) {
+    return res.status(400).json({ error: '房间游戏已开始' })
   }
+  touchRoom(roomId)
 
-  // 优先从 body 读取 uid，否则从 Cookie 读取
   let uid = (req.body && req.body.uid) ? parseInt(req.body.uid) : parseCookie(req)
-  
-  if (!isPlayerOne(uid)) {
-    return res.status(403).json({ error: 'Only player 1 can start the game' })
+  if (!(room.uidToPlayer.has(uid) && room.uidToPlayer.get(uid) === room.players[0])) {
+    return res.status(403).json({ error: '只有第一个玩家可以开始游戏' })
   }
 
   try {
-    game = createGame()
+    room.game = createGameRoom(room)
     res.status(200).json({ message: 'Game started' })
-    broadcastToAll({ type: 'game started' })
+    // 不广播，前端可轮询
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -425,9 +478,9 @@ function createUid() {
   return uid
 }
 
-function createGame() {
-  if (players.length % 2 != 0) {
-    throw new Error('Must have an even number of players')
+function createGameRoom(room) {
+  if (room.players.length % 2 != 0) {
+    throw new Error('房间玩家必须为偶数')
   }
   // 构建牌组 (标准 52 + 2 joker)
   const deck = []
@@ -442,7 +495,7 @@ function createGame() {
 
   // 支持多副牌
   let fullDeck = []
-  for (let i = 0; i < Math.max(1, numDecks); i++) {
+  for (let i = 0; i < Math.max(1, room.numDecks); i++) {
     fullDeck = fullDeck.concat(deck.map(d => Object.assign({}, d)))
   }
 
@@ -455,7 +508,7 @@ function createGame() {
   }
 
   // 分牌
-  const numPlayers = players.length
+  const numPlayers = room.players.length
   const hands = Array.from({ length: numPlayers }, () => [])
   let idx = 0
   while (fullDeck.length > 0) {
@@ -463,7 +516,7 @@ function createGame() {
     idx++
   }
 
-  const gamePlayers = players.map((username, i) => ({
+  const gamePlayers = room.players.map((username, i) => ({
     username,
     hand: hands[i],
     handSize: hands[i].length,
@@ -474,7 +527,7 @@ function createGame() {
     gamePlayers: gamePlayers,
     currentPlayer: 0,
     previousPlayedHand: [],
-    lastActions: new Array(players.length).fill(''),
+    lastActions: new Array(room.players.length).fill(''),
     gameState: gameState.IN_PROGRESS
   }
 }
